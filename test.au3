@@ -1,70 +1,36 @@
 #NoTrayIcon
-#Region ;**** Directives created by AutoIt3Wrapper_GUI ****
-#AutoIt3Wrapper_UseX64=n
-#EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
-
-;~ #include <_Dbug.au3>
-
-#include <Crypt.au3>
 #include "monocypher.au3"
 
-_Monocypher_Startup()
-If @error Then Exit -1
+_MC_Startup("monocypher" & (@AutoItX64 ? "64" : "") & ".dll")
+OnAutoItExitRegister(_MC_Shutdown)
 
-Const $bKey32 = _GetRandom(32) ; some random 32 bytes key used in the tests
-Const $bNonce24 = _GetRandom(24) ; some random 24 bytes nonce used in the tests
+#Region Authenticated encryption
 
-Const $bMessage = StringToBinary("Salut la compagnie!!! Ceci est un simple message de test.", 4)
+$sPlainData = "Hello, world!"
 
-; -------------------------------------------------------------------------------------------------
-; Lock/Unlock interface (simple)
-
+$bNonce = _MC_RandomData(24)
 Dim $bMac
 
-$bLocked = _Monocypher_Lock($bKey32, $bNonce24, $bMessage, $bMac)
-$bUnlocked = _Monocypher_Unlock($bKey32, $bNonce24, $bLocked, $bMac)
-If $bUnlocked <> $bMessage Then
-	ConsoleWrite("Lock/Unlock interface test failed!!!" & @CRLF)
-	Exit
-EndIf
+; lock
+$sPassword = InputBox("Monocypher", "Enter password to cipher")
+If Not $sPassword Then Exit
 
-; -------------------------------------------------------------------------------------------------
-; Lock/Unlock interface (incremental)
+$bCipher = _MC_Lock($sPlainData, _MC_Blake2b($sPassword, 32), $bNonce, $bMac)
 
-$tLock = _Monocypher_Lock_Init($bKey32, $bNonce24)
+ConsoleWrite("> Locked" & @CRLF & _
+	@TAB & "Cipher: " & $bCipher & @CRLF & _
+	@TAB & "Nonce:  " & $bNonce & @CRLF & _
+	@TAB & "MAC:    " & $bMac & @CRLF)
 
-$bLocked = Binary("")
-For $i = 1 To 3
-	$bLocked &= _Monocypher_Lock_Update($tLock, $bMessage)
-	$bLocked &= _Monocypher_Lock_Update($tLock, StringToBinary(@CRLF, 4))
-Next
+; unlock
+$sPassword = InputBox("Monocypher", "Enter password to decipher")
+If Not $sPassword Then Exit
 
-$bMac = _Monocypher_Lock_Final($tLock)
-
-; ---
-
-$tUnlock = _Monocypher_Unlock_Init($bKey32, $bNonce24)
-
-$bUnlocked = _Monocypher_Unlock_Update($tUnlock, $bLocked)
-
-If _Monocypher_Unlock_Final($tUnlock, $bMac) Then
-	If $bUnlocked <> $bMessage & StringToBinary(@CRLF, 4) & $bMessage & StringToBinary(@CRLF, 4) & $bMessage & StringToBinary(@CRLF, 4) Then
-		ConsoleWrite("Lock/Unlock incremental interface test failed!!!" & @CRLF)
-		Exit
-	EndIf
+$bClear = _MC_Unlock($bCipher, _MC_Blake2b($sPassword, 32), $bNonce, $bMac)
+If @error Then
+	ConsoleWrite("! Bad decipher key" & @CRLF)
 Else
-	ConsoleWrite("Lock/Unlock incremental interface MAC verification failed!!!" & @CRLF)
-	Exit
+	ConsoleWrite("> Unlocked: " & BinaryToString($bClear, 4) & @CRLF)
 EndIf
 
-; ---
-
-Func _GetRandom($iLen)
-	Local $tBuff = DllStructCreate("byte[" & $iLen & "]")
-	If _Crypt_GenRandom($tBuff, $iLen) Then
-		Return DllStructGetData($tBuff, 1)
-	Else
-		Return Binary("")
-	EndIf
-EndFunc
-
+#EndRegion
